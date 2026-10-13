@@ -39,6 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "app.jwt-expires-in-seconds=60",
                 "app.jwt-reset-expires-in-seconds=30",
                 "app.session-cookie-path=/api/v1/auth",
+                "app.service-key=test-service-key",
         })
 class SessionFlowTest {
 
@@ -187,29 +188,43 @@ class SessionFlowTest {
         assertThat(bad.getBody()).containsEntry("valid", false);
     }
 
+    private ResponseEntity<Object> lookup(String key, String customer, Map<String, Object> body) {
+        HttpHeaders h = headers(customer, null, null);
+        if (key != null) h.set("X-Service-Key", key);
+        return rest.exchange("/auth/internal/users/lookup", HttpMethod.POST, new HttpEntity<>(body, h), Object.class);
+    }
+
+    /** A successful lookup answers a JSON list; errors answer an object, so the body is typed loosely. */
+    private static List<?> people(ResponseEntity<Object> r) {
+        return (List<?>) r.getBody();
+    }
+
     @Test
-    void lookupReturnsNamesOnlyAndNeverCrossesTenants() {
+    void lookupByIdOrUsernameNeedsTheServiceKeyAndStaysInsideTheTenant() {
         String a = unique("fay");
         String b = unique("gus");
         register("acme", a, "Fay");
         register("acme", b, "Gus");
         register("other", a, "Other Fay"); // same username in another tenant
-        String tokenA = (String) sessionLogin("acme", a, "s3cret!pw").getBody().get("token");
-        String tokenOther = (String) sessionLogin("other", a, "s3cret!pw").getBody().get("token");
-        String idA = (String) me(tokenA).getBody().get("id");
-        String idB = (String) me((String) sessionLogin("acme", b, "s3cret!pw").getBody().get("token")).getBody().get("id");
+        String idA = (String) me((String) sessionLogin("acme", a, "s3cret!pw").getBody().get("token")).getBody().get("id");
 
-        ResponseEntity<List> found = rest.exchange("/auth/users/lookup", HttpMethod.POST,
-                new HttpEntity<>(Map.of("ids", List.of(idA, idB, "not-an-id")), headers(null, tokenA, null)), List.class);
-        assertThat(found.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(found.getBody()).hasSize(2);
+        ResponseEntity<Object> byId = lookup("test-service-key", "acme", Map.of("ids", List.of(idA, "not-an-id")));
+        assertThat(byId.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(people(byId)).hasSize(1);
         @SuppressWarnings("unchecked")
-        Map<String, Object> first = (Map<String, Object>) found.getBody().get(0);
-        assertThat(first.keySet()).containsExactlyInAnyOrder("id", "username", "firstname", "lastname");
+        Map<String, Object> fay = (Map<String, Object>) people(byId).get(0);
+        assertThat(fay).containsEntry("username", a).containsEntry("firstname", "Fay");
+        assertThat(fay.keySet()).containsExactlyInAnyOrder("id", "username", "firstname", "lastname", "bio");
 
-        ResponseEntity<List> crossTenant = rest.exchange("/auth/users/lookup", HttpMethod.POST,
-                new HttpEntity<>(Map.of("ids", List.of(idA, idB)), headers(null, tokenOther, null)), List.class);
-        assertThat(crossTenant.getBody()).isEmpty();
+        assertThat(people(lookup("test-service-key", "acme", Map.of("usernames", List.of(a, b))))).hasSize(2);
+        assertThat(people(lookup("test-service-key", "acme", Map.of("ids", List.of(idA), "usernames", List.of(b))))).hasSize(2);
+        // The same username in another tenant is a different person; the id isn't found there.
+        assertThat(people(lookup("test-service-key", "other", Map.of("ids", List.of(idA))))).isEmpty();
+        assertThat(people(lookup("test-service-key", "acme", Map.of()))).isEmpty();
+
+        assertThat(lookup(null, "acme", Map.of("ids", List.of(idA))).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(lookup("wrong", "acme", Map.of("ids", List.of(idA))).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(lookup("test-service-key", "nope", Map.of("ids", List.of(idA))).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test

@@ -90,7 +90,7 @@ access token plus a rotating refresh token in an httpOnly, SameSite=Strict cooki
 | GET | `/auth/me` | Bearer → the caller's own profile (`id, username, email, firstname, lastname, bio, image, activeProfile, customer`) |
 | PATCH | `/auth/me/profile` | Bearer; `{firstname?, lastname?, bio?}`, null leaves a field alone, `""` clears the bio |
 | POST | `/auth/me/verify-password` | Bearer; `{password}` → `{valid}`, for a backend to re-check the caller before a destructive action |
-| POST | `/auth/users/lookup` | Bearer; `{ids:[…]}` (max 200) → `[{id, username, firstname, lastname}]`, only users of the caller's own tenant |
+| POST | `/auth/internal/users/lookup` | service-to-service: `X-Service-Key` + `X-Customer`; `{ids?:[…], usernames?:[…]}` (max 200 in all) → `[{id, username, firstname, lastname, bio}]`, only that tenant. Not a user token, since some callers serve visitors who aren't logged in. Always 401 while `SERVICE_KEY` is unset. |
 
 - Access tokens carry the user's id in a `uid` claim (also added to `/auth/login` tokens; v1/v2 verification ignores it).
   The Bearer endpoints above require `uid` and re-check that the user still exists and is active, which also stops a
@@ -139,6 +139,7 @@ mvn spring-boot:run    # dev server on :9082
 | `JWT_EXPIRES_IN_SECONDS` / `JWT_RESET_EXPIRES_IN_SECONDS` | 86400 (24h) / 900 (15m) |
 | `KAFKA_ENABLED` / `KAFKA_BROKERS` / `KAFKA_CLIENT_ID` | true / `localhost:29092` / `dearlavion-spring-authentication-service-v3` |
 | `GOOGLE_ENABLED` / `GOOGLE_CLIENT_ID` | true / *(empty)* |
+| `SERVICE_KEY` | *(empty)* — shared secret for `/auth/internal/*`; generate with `openssl rand -hex 32` |
 | `SESSION_ACCESS_TTL_SECONDS` / `SESSION_REFRESH_TTL_DAYS` | 900 (15m) / 14 |
 | `SESSION_COOKIE_NAME` / `SESSION_COOKIE_PATH` / `SESSION_COOKIE_SECURE` | `dl_refresh` / `/auth` / `false`; the path must be the one the browser sees (e.g. `/api/v1/auth` behind a proxy), and `SESSION_COOKIE_SECURE=true` over https |
 | `FRONTEND_ORIGINS` | *(empty)* — extra CORS origins beyond the built-in dearlavion.site/localhost:4200/ngrok.pizza list |

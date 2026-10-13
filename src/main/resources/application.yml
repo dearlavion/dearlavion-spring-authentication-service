@@ -38,6 +38,8 @@ app:
   jwt-secret-base64: ${JWT_SECRET:5B6F7D3E2A9C4B8E0A1F6D9B3E7A2C9D4F8E5B6C3A7B1D6F4C9A3E8D2B5F7A1}
   jwt-expires-in-seconds: ${JWT_EXPIRES_IN_SECONDS:86400}
   jwt-reset-expires-in-seconds: ${JWT_RESET_EXPIRES_IN_SECONDS:900}
+  # Shared secret other backends send (X-Service-Key) to look users up by id/username. Empty => disabled.
+  service-key: ${SERVICE_KEY:}
   # Cookie-backed sessions (POST /auth/session/*): a short access token plus a rotating refresh token
   # in an httpOnly cookie. The cookie path must be the path the BROWSER sees (e.g. /api/v1/auth when
   # a UI proxies /api/v1/auth/* to this service), so it is deployment config, not code.

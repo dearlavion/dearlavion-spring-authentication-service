@@ -21,8 +21,9 @@ public final class SessionDtos {
 
     public record PasswordCheckRequest(String password) {}
 
-    public record LookupRequest(List<String> ids) {}
+    /** Look people up by id and/or username; both optional. */
+    public record LookupRequest(List<String> ids, List<String> usernames) {}
 
-    /** Just enough to show a name next to an id (e.g. a member list). */
-    public record LookupEntry(String id, String username, String firstname, String lastname) {}
+    /** Just enough to show a person (a member list, a public page owner). */
+    public record LookupEntry(String id, String username, String firstname, String lastname, String bio) {}
 }
