@@ -27,6 +27,7 @@ public class JwtTokenService {
 
     private static final String CLAIM_USERNAME = "username";
     private static final String CLAIM_CUSTOMER = "customer";
+    private static final String CLAIM_USER_ID = "uid";
     private static final String CLAIM_TYPE = "type";
     private static final String TYPE_PASSWORD_RESET = "PASSWORD_RESET";
 
@@ -46,15 +47,24 @@ public class JwtTokenService {
 
     /** Login token, stamped with the caller's customer/tenant. */
     public String generateToken(String username, String customer) {
+        return generateToken(username, customer, null, expiresInSeconds);
+    }
+
+    /**
+     * Login token that also carries the user's id ({@code uid}, ignored by v1/v2 verification) and a
+     * caller-chosen lifetime, so a session can use a short-lived access token plus a refresh token.
+     */
+    public String generateToken(String username, String customer, String userId, long ttlSeconds) {
         Map<String, Object> claims = new HashMap<>();
         claims.put(CLAIM_USERNAME, username);
         claims.put(CLAIM_CUSTOMER, customer);
+        if (userId != null) claims.put(CLAIM_USER_ID, userId);
         Date now = new Date();
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(username)
                 .setIssuedAt(now)
-                .setExpiration(new Date(now.getTime() + expiresInSeconds * 1000))
+                .setExpiration(new Date(now.getTime() + ttlSeconds * 1000))
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }
@@ -65,7 +75,7 @@ public class JwtTokenService {
             Claims claims = Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token).getBody();
             String username = claims.getSubject() != null ? claims.getSubject() : claims.get(CLAIM_USERNAME, String.class);
             if (username == null) return null;
-            return new TokenClaims(username, claims.get(CLAIM_CUSTOMER, String.class));
+            return new TokenClaims(username, claims.get(CLAIM_CUSTOMER, String.class), claims.get(CLAIM_USER_ID, String.class));
         } catch (Exception e) {
             return null;
         }

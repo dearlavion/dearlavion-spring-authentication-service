@@ -41,6 +41,9 @@ public class AuthController {
     @Value("${app.provision-secret}")
     private String provisionSecret;
 
+    @Value("${app.jwt-expires-in-seconds}")
+    private long jwtExpiresInSeconds;
+
     /** Privileged-role assignment is allowed only with a matching X-Provision-Secret (fail closed
      * if no secret is configured). Keeps the public signup endpoint from self-granting admin. */
     private boolean canProvision(String secret) {
@@ -135,7 +138,7 @@ public class AuthController {
         AuthStrategy strategy = authService.resolve(type);
         User user = strategy.authenticate(request, customer);
         if (!user.isActive()) throw new UnauthorizedException("Account is deactivated");
-        String token = jwtTokenService.generateToken(user.getUsername(), customer);
+        String token = jwtTokenService.generateToken(user.getUsername(), customer, user.getId(), jwtExpiresInSeconds);
         return new LoginResponse(token, authMapper.toLoginUserView(user, customer));
     }
 

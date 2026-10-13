@@ -38,6 +38,14 @@ app:
   jwt-secret-base64: ${JWT_SECRET:5B6F7D3E2A9C4B8E0A1F6D9B3E7A2C9D4F8E5B6C3A7B1D6F4C9A3E8D2B5F7A1}
   jwt-expires-in-seconds: ${JWT_EXPIRES_IN_SECONDS:86400}
   jwt-reset-expires-in-seconds: ${JWT_RESET_EXPIRES_IN_SECONDS:900}
+  # Cookie-backed sessions (POST /auth/session/*): a short access token plus a rotating refresh token
+  # in an httpOnly cookie. The cookie path must be the path the BROWSER sees (e.g. /api/v1/auth when
+  # a UI proxies /api/v1/auth/* to this service), so it is deployment config, not code.
+  session-access-ttl-seconds: ${SESSION_ACCESS_TTL_SECONDS:900}
+  session-refresh-ttl-days: ${SESSION_REFRESH_TTL_DAYS:14}
+  session-cookie-name: ${SESSION_COOKIE_NAME:dl_refresh}
+  session-cookie-path: ${SESSION_COOKIE_PATH:/auth}
+  session-cookie-secure: ${SESSION_COOKIE_SECURE:false}
   kafka-enabled: ${KAFKA_ENABLED:true}
   kafka-client-id: ${KAFKA_CLIENT_ID:dearlavion-spring-authentication-service-v3}
   google-enabled: ${GOOGLE_ENABLED:true}

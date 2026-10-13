@@ -33,6 +33,8 @@ public class User {
     private String password;
 
     private String image;
+    /** Free-text profile blurb (set via PATCH /auth/me/profile); null for users who never set one. */
+    private String bio;
 
     private Role activeProfile = Role.USER;
 

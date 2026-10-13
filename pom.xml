@@ -109,6 +109,15 @@
       <artifactId>httpclient5</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Embedded mongod for SessionFlowTest, which (unlike the Testcontainers test) needs no Docker.
+         Its auto-configuration is excluded for every test in src/test/resources/application.properties so the
+         Testcontainers test keeps using its own container; SessionFlowTest opts back in. -->
+    <dependency>
+      <groupId>de.flapdoodle.embed</groupId>
+      <artifactId>de.flapdoodle.embed.mongo.spring3x</artifactId>
+      <version>4.33.0</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <dependencyManagement>
