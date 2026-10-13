@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -99,9 +100,10 @@ public class ProfileController {
         List<String> usernames = body == null || body.usernames() == null ? List.of() : body.usernames();
         if (ids.isEmpty() && usernames.isEmpty()) return List.of();
         if (ids.size() + usernames.size() > MAX_LOOKUP) throw new BadRequestException("At most " + MAX_LOOKUP + " at a time");
-        Criteria any = new Criteria().orOperator(
-                ids.isEmpty() ? null : Criteria.where("id").in(ids),
-                usernames.isEmpty() ? null : Criteria.where("username").in(usernames));
+        List<Criteria> matches = new ArrayList<>();
+        if (!ids.isEmpty()) matches.add(Criteria.where("id").in(ids));
+        if (!usernames.isEmpty()) matches.add(Criteria.where("username").in(usernames));
+        Criteria any = new Criteria().orOperator(matches);
         return tenants.db(customer).find(Query.query(any), User.class).stream()
                 .map(u -> new LookupEntry(u.getId(), u.getUsername(), u.getFirstname(), u.getLastname(), u.getBio()))
                 .toList();
