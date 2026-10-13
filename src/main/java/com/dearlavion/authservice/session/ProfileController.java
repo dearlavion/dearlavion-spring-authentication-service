@@ -105,7 +105,7 @@ public class ProfileController {
         if (!usernames.isEmpty()) matches.add(Criteria.where("username").in(usernames));
         Criteria any = new Criteria().orOperator(matches);
         return tenants.db(customer).find(Query.query(any), User.class).stream()
-                .map(u -> new LookupEntry(u.getId(), u.getUsername(), u.getFirstname(), u.getLastname(), u.getBio()))
+                .map(u -> new LookupEntry(u.getId(), u.getUsername(), u.getEmail(), u.getFirstname(), u.getLastname(), u.getBio()))
                 .toList();
     }
 

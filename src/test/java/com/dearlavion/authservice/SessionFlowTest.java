@@ -214,7 +214,7 @@ class SessionFlowTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> fay = (Map<String, Object>) people(byId).get(0);
         assertThat(fay).containsEntry("username", a).containsEntry("firstname", "Fay");
-        assertThat(fay.keySet()).containsExactlyInAnyOrder("id", "username", "firstname", "lastname", "bio");
+        assertThat(fay.keySet()).containsExactlyInAnyOrder("id", "username", "email", "firstname", "lastname", "bio");
 
         assertThat(people(lookup("test-service-key", "acme", Map.of("usernames", List.of(a, b))))).hasSize(2);
         assertThat(people(lookup("test-service-key", "acme", Map.of("ids", List.of(idA), "usernames", List.of(b))))).hasSize(2);

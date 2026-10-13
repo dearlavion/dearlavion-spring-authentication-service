@@ -90,7 +90,7 @@ access token plus a rotating refresh token in an httpOnly, SameSite=Strict cooki
 | GET | `/auth/me` | Bearer → the caller's own profile (`id, username, email, firstname, lastname, bio, image, activeProfile, customer`) |
 | PATCH | `/auth/me/profile` | Bearer; `{firstname?, lastname?, bio?}`, null leaves a field alone, `""` clears the bio |
 | POST | `/auth/me/verify-password` | Bearer; `{password}` → `{valid}`, for a backend to re-check the caller before a destructive action |
-| POST | `/auth/internal/users/lookup` | service-to-service: `X-Service-Key` + `X-Customer`; `{ids?:[…], usernames?:[…]}` (max 200 in all) → `[{id, username, firstname, lastname, bio}]`, only that tenant. Not a user token, since some callers serve visitors who aren't logged in. Always 401 while `SERVICE_KEY` is unset. |
+| POST | `/auth/internal/users/lookup` | service-to-service: `X-Service-Key` + `X-Customer`; `{ids?:[…], usernames?:[…]}` (max 200 in all) → `[{id, username, email, firstname, lastname, bio}]`, only that tenant. Not a user token, since some callers serve visitors who aren't logged in. Always 401 while `SERVICE_KEY` is unset. |
 
 - Access tokens carry the user's id in a `uid` claim (also added to `/auth/login` tokens; v1/v2 verification ignores it).
   The Bearer endpoints above require `uid` and re-check that the user still exists and is active, which also stops a

@@ -25,5 +25,5 @@ public final class SessionDtos {
     public record LookupRequest(List<String> ids, List<String> usernames) {}
 
     /** Just enough to show a person (a member list, a public page owner). */
-    public record LookupEntry(String id, String username, String firstname, String lastname, String bio) {}
+    public record LookupEntry(String id, String username, String email, String firstname, String lastname, String bio) {}
 }
