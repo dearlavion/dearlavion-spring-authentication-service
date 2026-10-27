@@ -120,7 +120,7 @@ Powers `dearlavion-security-ui`. Superadmins live in a dedicated **security tena
 
 - `POST /auth/admin-request` (`X-Customer`; `{username, email, password}`) creates an ADMIN with status `PENDING`. It can't
   sign in (login, refresh, `/auth/verify`, `/admin/**` all refuse it) until a superadmin approves it.
-- Approval sets `status` (`PENDING|APPROVED|REJECTED`) and, when approving, `permission` (`READ|MODIFY|BOTH`). `/admin/**`
+- Approval sets `status` (`PENDING|APPROVED|REJECTED`) and, when approving, `permission` (`READ|MODIFY|BOTH`, or `NONE` to keep the account but switch both off). `/admin/**`
   enforces it: `READ` allows GET only, `MODIFY` writes only, `BOTH` everything. Accounts that predate this have no status or
   permission and count as `APPROVED` / `BOTH`, so nothing existing is locked out.
 - `POST /auth/verify` now also returns `permission`; consuming backends should enforce it (it is the source of truth, the
@@ -130,7 +130,9 @@ Powers `dearlavion-security-ui`. Superadmins live in a dedicated **security tena
   security tenant (register with `X-Provision-Secret`).
 - `/superadmin/*` (Bearer token of a SUPERADMIN in the security tenant): `GET /projects`, `GET /projects/{customer}/users`
   (`role=ADMIN|USER`, `status`, `q`, `page`, `size`), `PATCH /projects/{customer}/users/{username}/approval`
-  (`{status, permission}`), `PATCH .../active`, `GET /approvals`, `GET /audit`. Decisions are logged to `audit_log` in the
+  (`{status, permission}`), `POST /projects/{customer}/users` (`{username, email, password, role: ADMIN|USER, permission, firstname?, lastname?}`; an admin is
+  created already approved), `POST /projects/{customer}/roles` (`{name, description?, permission: READ|MODIFY|BOTH}`), `GET /roles` (`customer?`, `q`, `page`, `size`),
+  `DELETE /projects/{customer}/roles/{id}` (per-project permission presets; applying one copies its permission, there is no live link), `GET /users` (all projects, or one with `customer`; `role`, `q`, `page`, `size`), `PATCH .../active`, `GET /approvals`, `GET /audit`. Decisions are logged to `audit_log` in the
   security tenant's database.
 
 First superadmin: add `security` to `CUSTOMERS`, then

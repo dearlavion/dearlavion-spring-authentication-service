@@ -2,6 +2,7 @@ package com.dearlavion.authservice.tenant;
 
 import com.dearlavion.authservice.common.exception.BadRequestException;
 import com.dearlavion.authservice.session.RefreshToken;
+import com.dearlavion.authservice.superadmin.PermissionRole;
 import com.dearlavion.authservice.user.model.User;
 import com.mongodb.client.MongoClient;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,6 +54,11 @@ public class TenantService {
         return securityTenant.equals(customer);
     }
 
+    /** The customers that are real projects: everything but the security tenant, sorted. */
+    public List<String> projects() {
+        return customers().stream().filter(c -> !isSecurityTenant(c)).toList();
+    }
+
     /** Every tenant this instance serves, sorted. */
     public List<String> customers() {
         return allowedCustomers.stream().sorted().toList();
@@ -74,6 +80,7 @@ public class TenantService {
             MongoTemplate template = new MongoTemplate(mongoClient, "authentication-" + c);
             template.indexOps(User.class).ensureIndex(new Index().on("username", Sort.Direction.ASC).unique());
             template.indexOps(User.class).ensureIndex(new Index().on("email", Sort.Direction.ASC).unique());
+            template.indexOps(PermissionRole.class).ensureIndex(new Index().on("name", Sort.Direction.ASC).unique());
             // Refresh tokens: looked up by hash, purged by Mongo once expired.
             template.indexOps(RefreshToken.class).ensureIndex(new Index().on("tokenHash", Sort.Direction.ASC).unique());
             template.indexOps(RefreshToken.class).ensureIndex(new Index().on("expiresAt", Sort.Direction.ASC).expire(0));

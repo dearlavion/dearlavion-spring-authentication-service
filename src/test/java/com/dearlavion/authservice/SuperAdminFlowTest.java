@@ -162,6 +162,144 @@ class SuperAdminFlowTest {
     }
 
     @Test
+    void adminWithNoPermissionKeepsTheAccountButCannotReadOrWrite() {
+        String root = superadminToken();
+        String admin = unique("nia");
+        requestAdmin("acme", admin);
+        approve(root, "acme", admin, "APPROVED", "BOTH");
+        String token = token("acme", admin);
+        assertThat(status(HttpMethod.GET, "/admin/users", null, token, null)).isEqualTo(HttpStatus.OK);
+
+        assertThat(approve(root, "acme", admin, "APPROVED", "NONE").getBody()).containsEntry("permission", "NONE");
+        assertThat(status(HttpMethod.GET, "/admin/users", null, token, null)).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(status(HttpMethod.POST, "/admin/users", null, token, Map.of("username", unique("u"), "email", unique("e") + "@x.dev", "password", PASSWORD)))
+                .isEqualTo(HttpStatus.FORBIDDEN);
+        // Still approved and active, so the account itself keeps working.
+        assertThat(login("acme", admin).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void superadminCreatesAnApprovedAdminOrAPlainUser() {
+        String root = superadminToken();
+        String adminName = unique("cora");
+        Map<String, Object> adminBody = Map.of("username", adminName.toUpperCase(), "email", adminName + "@acme.dev", "password", PASSWORD,
+                "firstname", "Cora", "role", "ADMIN", "permission", "READ");
+        ResponseEntity<Map> admin = call(HttpMethod.POST, "/superadmin/projects/acme/users", null, root, adminBody);
+        assertThat(admin.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // Usernames are stored lower-case, like the other apps do.
+        assertThat(admin.getBody()).containsEntry("username", adminName).containsEntry("activeProfile", "ADMIN")
+                .containsEntry("status", "APPROVED").containsEntry("permission", "READ");
+
+        // Approved already, so it signs in and gets exactly the permission it was given.
+        String token = token("acme", adminName);
+        assertThat(status(HttpMethod.GET, "/admin/users", null, token, null)).isEqualTo(HttpStatus.OK);
+        assertThat(status(HttpMethod.POST, "/admin/users", null, token,
+                Map.of("username", unique("u"), "email", unique("e") + "@x.dev", "password", PASSWORD))).isEqualTo(HttpStatus.FORBIDDEN);
+
+        String userName = unique("pat");
+        ResponseEntity<Map> user = call(HttpMethod.POST, "/superadmin/projects/acme/users", null, root,
+                Map.of("username", userName, "email", userName + "@acme.dev", "password", PASSWORD, "role", "USER"));
+        assertThat(user.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(user.getBody()).containsEntry("activeProfile", "USER");
+        assertThat(login("acme", userName).getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        assertThat(call(HttpMethod.POST, "/superadmin/projects/acme/users", null, root, adminBody).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    void usersListPagesAcrossProjectsInProjectThenUsernameOrder() {
+        String root = superadminToken();
+        String tag = unique("zz");
+        for (int i = 1; i <= 3; i++) register("acme", tag + "a" + i, "USER", false);
+        for (int i = 1; i <= 2; i++) register("other", tag + "b" + i, "USER", false);
+        String base = "/superadmin/users?q=" + tag + "&size=2";
+
+        ResponseEntity<Map> first = call(HttpMethod.GET, base + "&page=0", null, root, null);
+        assertThat(((Number) first.getBody().get("total")).intValue()).isEqualTo(5);
+        assertThat(names((List) first.getBody().get("items"))).containsExactly("acme/" + tag + "a1", "acme/" + tag + "a2");
+        // The second page straddles the two projects.
+        assertThat(names((List) call(HttpMethod.GET, base + "&page=1", null, root, null).getBody().get("items")))
+                .containsExactly("acme/" + tag + "a3", "other/" + tag + "b1");
+        assertThat(names((List) call(HttpMethod.GET, base + "&page=2", null, root, null).getBody().get("items")))
+                .containsExactly("other/" + tag + "b2");
+
+        ResponseEntity<Map> one = call(HttpMethod.GET, "/superadmin/users?q=" + tag + "&customer=other", null, root, null);
+        assertThat(((Number) one.getBody().get("total")).intValue()).isEqualTo(2);
+        assertThat(status(HttpMethod.GET, "/superadmin/users?customer=security", null, root, null)).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void rolesAreCreatedSearchedAndDeletedPerProject() {
+        String root = superadminToken();
+        String tag = unique("Role");
+        Map<String, Object> editor = Map.of("name", tag + "A", "description", "Edits content", "permission", "BOTH");
+
+        ResponseEntity<Map> created = call(HttpMethod.POST, "/superadmin/projects/acme/roles", null, root, editor);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(created.getBody()).containsEntry("name", tag + "A").containsEntry("permission", "BOTH");
+        String id = (String) created.getBody().get("id");
+
+        // Names are unique per project, ignoring case, but another project can reuse one.
+        assertThat(call(HttpMethod.POST, "/superadmin/projects/acme/roles", null, root,
+                Map.of("name", (tag + "a").toLowerCase(), "permission", "READ")).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(call(HttpMethod.POST, "/superadmin/projects/other/roles", null, root,
+                Map.of("name", tag + "A", "permission", "READ")).getStatusCode()).isEqualTo(HttpStatus.OK);
+        call(HttpMethod.POST, "/superadmin/projects/other/roles", null, root, Map.of("name", tag + "B", "permission", "MODIFY"));
+
+        // Across projects: ordered by project, then name; the second page straddles them.
+        String base = "/superadmin/roles?q=" + tag + "&size=2";
+        ResponseEntity<Map> first = call(HttpMethod.GET, base + "&page=0", null, root, null);
+        assertThat(((Number) first.getBody().get("total")).intValue()).isEqualTo(3);
+        assertThat(roleNames((List) first.getBody().get("items"))).containsExactly("acme/" + tag + "A", "other/" + tag + "A");
+        assertThat(roleNames((List) call(HttpMethod.GET, base + "&page=1", null, root, null).getBody().get("items"))).containsExactly("other/" + tag + "B");
+        assertThat(((Number) call(HttpMethod.GET, "/superadmin/roles?q=" + tag + "&customer=other", null, root, null).getBody().get("total")).intValue()).isEqualTo(2);
+
+        assertThat(status(HttpMethod.DELETE, "/superadmin/projects/acme/roles/" + id, null, root, null)).isEqualTo(HttpStatus.OK);
+        assertThat(status(HttpMethod.DELETE, "/superadmin/projects/acme/roles/" + id, null, root, null)).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void roleCreateRejectsBadInputAndNonSuperadmins() {
+        String root = superadminToken();
+        String path = "/superadmin/projects/acme/roles";
+        assertThat(status(HttpMethod.POST, path, null, root, Map.of("name", "x", "permission", "READ"))).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(status(HttpMethod.POST, path, null, root, Map.of("name", unique("ok"), "permission", "NONE"))).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(status(HttpMethod.POST, path, null, root, Map.of("name", unique("ok")))).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(status(HttpMethod.POST, "/superadmin/projects/security/roles", null, root, Map.of("name", unique("ok"), "permission", "READ"))).isEqualTo(HttpStatus.BAD_REQUEST);
+        String projectAdmin = unique("pa");
+        register("acme", projectAdmin, "ADMIN", true);
+        assertThat(status(HttpMethod.POST, path, null, token("acme", projectAdmin), Map.of("name", unique("ok"), "permission", "READ"))).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    private static List<String> roleNames(List<?> items) {
+        return items.stream().map(i -> ((Map) i).get("customer") + "/" + ((Map) ((Map) i).get("role")).get("name")).map(String::valueOf).toList();
+    }
+
+    private static List<String> names(List<?> items) {
+        return items.stream().map(i -> ((Map) i).get("customer") + "/" + ((Map) ((Map) i).get("user")).get("username")).map(String::valueOf).toList();
+    }
+
+    @Test
+    void superadminCreateRejectsBadInput() {
+        String root = superadminToken();
+        String name = unique("bad");
+        Map<String, Object> ok = Map.of("username", name, "email", name + "@acme.dev", "password", PASSWORD, "role", "USER");
+        String path = "/superadmin/projects/acme/users";
+        assertThat(status(HttpMethod.POST, path, null, root, Map.of("username", name, "email", name + "@acme.dev", "password", PASSWORD, "role", "SUPERADMIN")))
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(status(HttpMethod.POST, path, null, root, Map.of("username", name, "email", name + "@acme.dev", "password", PASSWORD, "role", "ADMIN")))
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(status(HttpMethod.POST, path, null, root, Map.of("username", name, "email", name + "@acme.dev", "password", "short", "role", "USER")))
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(status(HttpMethod.POST, "/superadmin/projects/security/users", null, root, ok)).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(status(HttpMethod.POST, "/superadmin/projects/nope/users", null, root, ok)).isEqualTo(HttpStatus.BAD_REQUEST);
+        // A project admin's own token can't reach it.
+        String projectAdmin = unique("pa");
+        register("acme", projectAdmin, "ADMIN", true);
+        assertThat(status(HttpMethod.POST, path, null, token("acme", projectAdmin), ok)).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
     void superadminRoutesAreForSuperadminsOfTheSecurityTenantOnly() {
         assertThat(status(HttpMethod.GET, "/superadmin/projects", null, null, null)).isEqualTo(HttpStatus.UNAUTHORIZED);
 

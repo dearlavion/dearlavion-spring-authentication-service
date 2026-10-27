@@ -111,6 +111,27 @@ public class UserService {
         }
     }
 
+    /**
+     * An account created by a superadmin. An admin is approved on the spot with the chosen permission (there is nobody
+     * left to approve it); a plain user has neither status nor permission, like any registered user.
+     */
+    public User createAsSuperadmin(String customer, UserVoRequest vo, Role role, Permission permission) {
+        MongoTemplate db = tenants.db(customer);
+        User user = mapper.toEntity(vo.withActiveProfile(role), AuthType.SIMPLE);
+        // POST /auth/register never stores names (see UserMapper.toEntity); here the superadmin typed them, so keep them.
+        if (vo.firstname() != null && !vo.firstname().isBlank()) user.setFirstname(vo.firstname().trim());
+        if (vo.lastname() != null && !vo.lastname().isBlank()) user.setLastname(vo.lastname().trim());
+        if (role == Role.ADMIN) {
+            user.setStatus(ApprovalStatus.APPROVED);
+            user.setPermission(permission);
+        }
+        try {
+            return db.insert(user);
+        } catch (DuplicateKeyException e) {
+            throw new ConflictException("A user with this username or email already exists");
+        }
+    }
+
     /** Superadmin decision on an ADMIN/STAFF account. Approving needs a permission; anything else clears it. */
     public User decide(String customer, String username, ApprovalStatus status, Permission permission) {
         User user = loadByUsernameOrThrow(customer, username);
@@ -145,8 +166,12 @@ public class UserService {
 
     /** Filtered, paged list for the superadmin dashboard, ordered by username. */
     public List<User> search(String customer, List<Role> roles, ApprovalStatus status, String q, int page, int size) {
-        Query query = Query.query(matching(roles, status, q))
-                .with(Sort.by("username")).skip((long) page * size).limit(size);
+        return search(customer, roles, status, q, (long) page * size, size);
+    }
+
+    /** Same, from an arbitrary offset; the cross-project list pages through several tenants with it. */
+    public List<User> search(String customer, List<Role> roles, ApprovalStatus status, String q, long skip, int limit) {
+        Query query = Query.query(matching(roles, status, q)).with(Sort.by("username")).skip(skip).limit(limit);
         return tenants.db(customer).find(query, User.class);
     }
 
