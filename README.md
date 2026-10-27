@@ -113,6 +113,29 @@ No token → 401; bad/expired token → 401; wrong role → 403.
 `PATCH /admin/users/{username}`, `PATCH /admin/users/{username}/active`,
 `PATCH /admin/users/{username}/password`.
 
+## Admin approval, permissions & superadmin (`/superadmin`)
+
+Powers `dearlavion-security-ui`. Superadmins live in a dedicated **security tenant** (`SECURITY_TENANT`, default
+`security`, which must also be in `CUSTOMERS`) and are the only accounts that can act across projects.
+
+- `POST /auth/admin-request` (`X-Customer`; `{username, email, password}`) creates an ADMIN with status `PENDING`. It can't
+  sign in (login, refresh, `/auth/verify`, `/admin/**` all refuse it) until a superadmin approves it.
+- Approval sets `status` (`PENDING|APPROVED|REJECTED`) and, when approving, `permission` (`READ|MODIFY|BOTH`). `/admin/**`
+  enforces it: `READ` allows GET only, `MODIFY` writes only, `BOTH` everything. Accounts that predate this have no status or
+  permission and count as `APPROVED` / `BOTH`, so nothing existing is locked out.
+- `POST /auth/verify` now also returns `permission`; consuming backends should enforce it (it is the source of truth, the
+  JWT doesn't carry it, so a revoke takes effect on the next verify).
+- `/admin/users` no longer lets a project admin set roles: creating ignores the body's `activeProfile` (always `USER`) and
+  updating can't change it. Handing out ADMIN/STAFF is a superadmin decision. `SUPERADMIN` can only be created in the
+  security tenant (register with `X-Provision-Secret`).
+- `/superadmin/*` (Bearer token of a SUPERADMIN in the security tenant): `GET /projects`, `GET /projects/{customer}/users`
+  (`role=ADMIN|USER`, `status`, `q`, `page`, `size`), `PATCH /projects/{customer}/users/{username}/approval`
+  (`{status, permission}`), `PATCH .../active`, `GET /approvals`, `GET /audit`. Decisions are logged to `audit_log` in the
+  security tenant's database.
+
+First superadmin: add `security` to `CUSTOMERS`, then
+`POST /auth/register` with `X-Customer: security`, `X-Provision-Secret`, and `"activeProfile":"SUPERADMIN"`.
+
 ## Events (Kafka)
 
 Topic `authentication-service-event`, `{ type, payload }` envelope — `NEW_USER` on register,
@@ -142,6 +165,7 @@ mvn spring-boot:run    # dev server on :9082
 | `SERVICE_KEY` | *(empty)* — shared secret for `/auth/internal/*`; generate with `openssl rand -hex 32` |
 | `SESSION_ACCESS_TTL_SECONDS` / `SESSION_REFRESH_TTL_DAYS` | 900 (15m) / 14 |
 | `SESSION_COOKIE_NAME` / `SESSION_COOKIE_PATH` / `SESSION_COOKIE_SECURE` | `dl_refresh` / `/auth` / `false`; the path must be the one the browser sees (e.g. `/api/v1/auth` behind a proxy), and `SESSION_COOKIE_SECURE=true` over https |
+| `SECURITY_TENANT` | `security` — tenant holding SUPERADMIN accounts; must also be listed in `CUSTOMERS` |
 | `FRONTEND_ORIGINS` | *(empty)* — extra CORS origins beyond the built-in dearlavion.site/localhost:4200/ngrok.pizza list |
 
 Health at `/actuator/health` (matches v1's path), Swagger at `/swagger-ui/index.html`.

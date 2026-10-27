@@ -43,4 +43,22 @@ public class User {
     /** Soft-delete flag for admin user management — false blocks login without removing the
      * document, so orders/payments/kits elsewhere that reference this user by id aren't orphaned. */
     private boolean active = true;
+
+    /** Approval state of a privileged account; null (every document written before this existed) means APPROVED. */
+    private ApprovalStatus status;
+
+    /** What an approved admin may do; null means BOTH, so admins that predate permissions keep full access. */
+    private Permission permission;
+
+    public ApprovalStatus effectiveStatus() {
+        return status != null ? status : ApprovalStatus.APPROVED;
+    }
+
+    public Permission effectivePermission() {
+        return permission != null ? permission : Permission.BOTH;
+    }
+
+    public boolean isApproved() {
+        return effectiveStatus() == ApprovalStatus.APPROVED;
+    }
 }

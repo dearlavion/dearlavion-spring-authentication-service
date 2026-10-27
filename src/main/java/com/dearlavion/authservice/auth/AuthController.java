@@ -11,6 +11,7 @@ import com.dearlavion.authservice.common.exception.BadRequestException;
 import com.dearlavion.authservice.common.exception.UnauthorizedException;
 import com.dearlavion.authservice.security.JwtTokenService;
 import com.dearlavion.authservice.security.TokenClaims;
+import com.dearlavion.authservice.tenant.TenantService;
 import com.dearlavion.authservice.user.model.AuthType;
 import com.dearlavion.authservice.user.model.Role;
 import com.dearlavion.authservice.user.model.User;
@@ -34,6 +35,7 @@ public class AuthController {
     private final PasswordResetService passwordResetService;
     private final GoogleVerifierService googleVerifier;
     private final AuthMapper authMapper;
+    private final TenantService tenants;
 
     @Value("${app.google-enabled}")
     private boolean googleEnabled;
@@ -48,6 +50,14 @@ public class AuthController {
      * if no secret is configured). Keeps the public signup endpoint from self-granting admin. */
     private boolean canProvision(String secret) {
         return provisionSecret != null && !provisionSecret.isBlank() && provisionSecret.equals(secret);
+    }
+
+    /** The role a caller may actually be given: privileged ones need the provision secret, and SUPERADMIN additionally
+     * only exists in the security tenant. Anything else falls back to USER. */
+    private Role grantableRole(Role wanted, String customer, String secret) {
+        if (wanted == null || !canProvision(secret)) return Role.USER;
+        if (wanted == Role.SUPERADMIN) return tenants.isSecurityTenant(customer) ? Role.SUPERADMIN : Role.USER;
+        return wanted;
     }
 
     private AuthType parseType(String typeParam) {
@@ -70,8 +80,7 @@ public class AuthController {
         AuthType type = googleEnabled ? parseType(typeParam) : AuthType.SIMPLE;
         if (type == AuthType.GOOGLE && googleToken != null) request = request.withGoogleToken(googleToken);
 
-        boolean wantsPrivileged = request.activeProfile() == Role.ADMIN || request.activeProfile() == Role.STAFF;
-        request = request.withActiveProfile(wantsPrivileged && canProvision(provisionSecretHeader) ? request.activeProfile() : Role.USER);
+        request = request.withActiveProfile(grantableRole(request.activeProfile(), customer, provisionSecretHeader));
 
         AuthStrategy strategy = authService.resolve(type);
         User user = strategy.register(request, customer);
@@ -88,8 +97,10 @@ public class AuthController {
     ) {
         // Role changes are gated by the same secret; without it, ignore any activeProfile in the
         // body (other profile fields still update).
-        if (u.activeProfile() != null && !canProvision(provisionSecretHeader)) {
-            u = u.withActiveProfile(null);
+        if (u.activeProfile() != null) {
+            Role granted = canProvision(provisionSecretHeader) ? grantableRole(u.activeProfile(), customer, provisionSecretHeader) : null;
+            // A role the caller may not grant (SUPERADMIN outside the security tenant) is ignored, not downgraded.
+            u = u.withActiveProfile(granted == Role.USER && u.activeProfile() != Role.USER ? null : granted);
         }
         User updated = userService.updateUser(customer, username, u);
         return Map.of("message", "User updated successfully", "username", updated.getUsername());
@@ -128,6 +139,25 @@ public class AuthController {
         return userService.toView(updated);
     }
 
+    /** Public request for admin access to a project: created as a PENDING ADMIN that cannot sign in until a superadmin approves
+     * it and picks a permission. Needs no provision secret, which is exactly why it grants nothing by itself. */
+    @PostMapping("/admin-request")
+    public Map<String, String> requestAdmin(
+            @RequestHeader(value = "X-Customer", required = false) String customer,
+            @RequestBody UserVoRequest request
+    ) {
+        if (request == null || isBlank(request.username()) || isBlank(request.email()) || isBlank(request.password())) {
+            throw new BadRequestException("Username, email and password are required");
+        }
+        if (tenants.isSecurityTenant(customer)) throw new BadRequestException("Admin requests are for project tenants");
+        User user = userService.registerAdminRequest(customer, request);
+        return Map.of("message", "Request received, a superadmin will review it", "user", user.getUsername());
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
     @PostMapping("/login")
     public LoginResponse login(
             @RequestHeader(value = "X-Customer", required = false) String customer,
@@ -137,7 +167,7 @@ public class AuthController {
         AuthType type = googleEnabled ? parseType(typeParam) : AuthType.SIMPLE;
         AuthStrategy strategy = authService.resolve(type);
         User user = strategy.authenticate(request, customer);
-        if (!user.isActive()) throw new UnauthorizedException("Account is deactivated");
+        userService.assertCanSignIn(user);
         String token = jwtTokenService.generateToken(user.getUsername(), customer, user.getId(), jwtExpiresInSeconds);
         return new LoginResponse(token, authMapper.toLoginUserView(user, customer));
     }
@@ -181,12 +211,13 @@ public class AuthController {
         } catch (Exception e) {
             user = null;
         }
-        if (user == null) {
+        if (user == null || !userService.canSignIn(user)) {
             throw new UnauthorizedException("Invalid token", Map.of("valid", false));
         }
         // activeProfile (role) and customer (tenant) are additive — existing consumers ignore
         // them; store-engine uses the role for admin authz and the customer for tenant enforcement.
-        return new VerifyResult(true, claims.username(), user.getEmail(), user.getId(), user.getActiveProfile(), claims.customer());
+        return new VerifyResult(true, claims.username(), user.getEmail(), user.getId(), user.getActiveProfile(), claims.customer(),
+                user.effectivePermission());
     }
 
     @PostMapping("/verify-google")

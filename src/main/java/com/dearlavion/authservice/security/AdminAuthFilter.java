@@ -1,6 +1,7 @@
 package com.dearlavion.authservice.security;
 
 import com.dearlavion.authservice.common.exception.ApiError;
+import com.dearlavion.authservice.user.model.Permission;
 import com.dearlavion.authservice.user.model.Role;
 import com.dearlavion.authservice.user.model.User;
 import com.dearlavion.authservice.user.UserService;
@@ -68,12 +69,18 @@ public class AdminAuthFilter extends OncePerRequestFilter {
         }
 
         User user = userService.findByUsername(claims.customer(), claims.username());
-        if (user == null) {
+        if (user == null || !userService.canSignIn(user)) {
             writeError(response, HttpStatus.UNAUTHORIZED, "Invalid or expired token");
             return;
         }
         if (!ADMIN_ROLES.contains(user.getActiveProfile())) {
             writeError(response, HttpStatus.FORBIDDEN, "Admin access required");
+            return;
+        }
+        boolean reads = HttpMethod.GET.matches(request.getMethod()) || HttpMethod.HEAD.matches(request.getMethod());
+        Permission permission = user.effectivePermission();
+        if (reads ? !permission.canRead() : !permission.canModify()) {
+            writeError(response, HttpStatus.FORBIDDEN, reads ? "Read permission required" : "Modify permission required");
             return;
         }
 

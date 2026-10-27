@@ -59,7 +59,7 @@ public class SessionService {
         token.revoke();
         db.save(token);
         User user = db.findById(token.getUserId(), User.class);
-        if (user == null || !user.isActive()) throw new UnauthorizedException("Session expired, please log in again");
+        if (user == null || !user.isActive() || !user.isApproved()) throw new UnauthorizedException("Session expired, please log in again");
         return start(user, customer);
     }
 

@@ -1,5 +1,7 @@
 package com.dearlavion.authservice.user.response;
 
+import com.dearlavion.authservice.user.model.ApprovalStatus;
+import com.dearlavion.authservice.user.model.Permission;
 import com.dearlavion.authservice.user.model.Role;
 
 /** Public projection of a user (no password), returned by GET /auth/user/{username} and the
@@ -12,6 +14,8 @@ public record UserView(
         String phone,
         String image,
         Role activeProfile,
-        boolean active
+        boolean active,
+        ApprovalStatus status,
+        Permission permission
 ) {
 }

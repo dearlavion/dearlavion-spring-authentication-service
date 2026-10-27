@@ -4,6 +4,7 @@ import com.dearlavion.authservice.auth.AuthService;
 import com.dearlavion.authservice.common.exception.UnauthorizedException;
 import com.dearlavion.authservice.session.SessionDtos.SessionResponse;
 import com.dearlavion.authservice.tenant.TenantService;
+import com.dearlavion.authservice.user.UserService;
 import com.dearlavion.authservice.user.model.AuthType;
 import com.dearlavion.authservice.user.model.User;
 import com.dearlavion.authservice.user.request.UserVoRequest;
@@ -35,6 +36,7 @@ public class SessionController {
     private final AuthService authService;
     private final SessionService sessions;
     private final TenantService tenants;
+    private final UserService userService;
 
     @Value("${app.session-cookie-name}")
     private String cookieName;
@@ -52,7 +54,7 @@ public class SessionController {
     ) {
         tenants.assertCustomer(customer);
         User user = authService.resolve(AuthType.SIMPLE).authenticate(request, customer);
-        if (!user.isActive()) throw new UnauthorizedException("Account is deactivated");
+        userService.assertCanSignIn(user);
         return withCookie(sessions.start(user, customer));
     }
 

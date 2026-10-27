@@ -28,6 +28,8 @@ app:
   # every environment. The previous `dearlavion` default silently rejected every real request with
   # 400 "Unknown customer" whenever CUSTOMERS wasn't set — see TenantService.assertCustomer.
   customers: ${CUSTOMERS:travelbesty}
+  # The tenant that holds SUPERADMIN accounts and backs /superadmin/**. It must also be listed in CUSTOMERS.
+  security-tenant: ${SECURITY_TENANT:security}
   # Secret required (via X-Provision-Secret) to set a privileged role at register/update time.
   # Empty => privileged roles can never be assigned through the API (fail closed).
   provision-secret: ${PROVISION_SECRET:}

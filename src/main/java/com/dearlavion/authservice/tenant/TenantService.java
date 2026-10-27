@@ -11,6 +11,7 @@ import org.springframework.data.mongodb.core.index.Index;
 import org.springframework.stereotype.Service;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -30,14 +31,31 @@ public class TenantService {
 
     private final MongoClient mongoClient;
     private final Set<String> allowedCustomers;
+    private final String securityTenant;
     private final ConcurrentMap<String, MongoTemplate> templates = new ConcurrentHashMap<>();
 
-    public TenantService(MongoClient mongoClient, @Value("${app.customers}") String customersCsv) {
+    public TenantService(MongoClient mongoClient, @Value("${app.customers}") String customersCsv,
+                         @Value("${app.security-tenant}") String securityTenant) {
         this.mongoClient = mongoClient;
+        this.securityTenant = securityTenant;
         this.allowedCustomers = Arrays.stream(customersCsv.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toSet());
+    }
+
+    /** The tenant that holds superadmin accounts; the only one allowed to carry the SUPERADMIN role. */
+    public String securityTenant() {
+        return securityTenant;
+    }
+
+    public boolean isSecurityTenant(String customer) {
+        return securityTenant.equals(customer);
+    }
+
+    /** Every tenant this instance serves, sorted. */
+    public List<String> customers() {
+        return allowedCustomers.stream().sorted().toList();
     }
 
     /** Throw 400 unless the customer is in the allowlist. Returns it for convenient chaining. */

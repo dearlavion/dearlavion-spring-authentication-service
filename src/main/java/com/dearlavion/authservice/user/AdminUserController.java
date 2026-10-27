@@ -3,6 +3,7 @@ package com.dearlavion.authservice.user;
 import com.dearlavion.authservice.security.AdminAuthFilter;
 import com.dearlavion.authservice.security.AdminRequestUser;
 import com.dearlavion.authservice.user.model.AuthType;
+import com.dearlavion.authservice.user.model.Role;
 import com.dearlavion.authservice.user.request.UserVoRequest;
 import com.dearlavion.authservice.user.response.UserView;
 import lombok.RequiredArgsConstructor;
@@ -32,19 +33,18 @@ public class AdminUserController {
         return userService.toView(userService.loadByUsernameOrThrow(admin.customer(), username));
     }
 
-    /** Creates directly via the shared register path, role taken straight from the body — the
-     * caller's bearer token already proves they're a real admin, so (unlike the public
-     * /auth/register endpoint) there's no X-Provision-Secret to thread through the frontend. */
+    /** Creates a regular user. The role in the body is ignored: handing out ADMIN/STAFF is a superadmin decision
+     * (see SuperAdminController), otherwise any admin could mint more admins. */
     @PostMapping
     public UserView create(@RequestAttribute(AdminAuthFilter.ADMIN_USER_ATTRIBUTE) AdminRequestUser admin,
                             @RequestBody UserVoRequest body) {
-        return userService.toView(userService.registerUser(admin.customer(), body, AuthType.SIMPLE));
+        return userService.toView(userService.registerUser(admin.customer(), body.withActiveProfile(Role.USER), AuthType.SIMPLE));
     }
 
     @PatchMapping("/{username}")
     public UserView update(@RequestAttribute(AdminAuthFilter.ADMIN_USER_ATTRIBUTE) AdminRequestUser admin,
                             @PathVariable String username, @RequestBody UserVoRequest body) {
-        return userService.toView(userService.updateUser(admin.customer(), username, body));
+        return userService.toView(userService.updateUser(admin.customer(), username, body.withActiveProfile(null)));
     }
 
     @PatchMapping("/{username}/active")

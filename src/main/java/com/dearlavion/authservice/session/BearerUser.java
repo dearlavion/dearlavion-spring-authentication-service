@@ -31,7 +31,7 @@ public class BearerUser {
             throw new UnauthorizedException("Invalid or expired token");
         }
         User user = userService.findByUsername(claims.customer(), claims.username());
-        if (user == null || !user.isActive() || !claims.userId().equals(user.getId())) {
+        if (user == null || !userService.canSignIn(user) || !claims.userId().equals(user.getId())) {
             throw new UnauthorizedException("Invalid or expired token");
         }
         return new Caller(user, claims.customer());

@@ -38,7 +38,8 @@ public class UserMapper {
     public UserView toView(User user) {
         return new UserView(
                 user.getUsername(), user.getEmail(), user.getFirstname(), user.getLastname(),
-                user.getPhone(), user.getImage(), user.getActiveProfile(), user.isActive()
+                user.getPhone(), user.getImage(), user.getActiveProfile(), user.isActive(),
+                user.effectiveStatus(), user.effectivePermission()
         );
     }
 }
