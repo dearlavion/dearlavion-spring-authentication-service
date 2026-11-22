@@ -41,7 +41,7 @@ jobs:
           docker buildx build \
             --platform linux/amd64 \
             --push \
-            -t ghcr.io/dearlavion/dearlavion-spring-authentication-service-v3:dev \
+            -t ghcr.io/dearlavion/dearlavion-spring-authentication-service:dev \
             .
 
       - name: Checkout Ansible repo

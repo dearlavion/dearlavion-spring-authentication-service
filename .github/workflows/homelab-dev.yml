@@ -1,0 +1,70 @@
+# homelab-dev.yml
+# Build the image and ask the homelab to deploy it (to k8s-w1, via vm-runner).
+# Independent of dev.yml (the old VPS deploy): it pushes its own tags, so the two never overwrite
+# each other's image. The deploy itself runs in dearlavion/dearlavion-homelab, on its self-hosted
+# runner, because the homelab is on a private LAN that GitHub's servers cannot reach.
+name: Homelab DEV
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: homelab-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/dearlavion/dearlavion-spring-authentication-service
+
+jobs:
+  build-and-trigger:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # :homelab is what the homelab pulls; :<sha> lets you pin or roll back to an exact build.
+      - name: Build and push the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:homelab
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Starts "homelab-services" in the homelab repo. Needs a token that can run workflows there
+      # (fine-grained PAT, repo dearlavion-homelab, permission Actions: read and write).
+      - name: Trigger the homelab deploy
+        env:
+          GH_TOKEN: ${{ secrets.HOMELAB_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Secret HOMELAB_DISPATCH_TOKEN is not set. Image pushed, but the homelab was not told to deploy."
+            exit 0
+          fi
+          gh workflow run homelab-services.yml \
+            -R dearlavion/dearlavion-homelab \
+            --ref dev \
+            -f service=auth-service
+          echo "Triggered homelab-services (auth-service) for ${{ github.sha }}."
