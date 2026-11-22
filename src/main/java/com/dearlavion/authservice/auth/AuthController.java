@@ -4,12 +4,14 @@ import com.dearlavion.authservice.auth.request.ResetPasswordRequest;
 import com.dearlavion.authservice.auth.request.UpdateEmailRequest;
 import com.dearlavion.authservice.auth.request.VerifyGoogleRequest;
 import com.dearlavion.authservice.auth.request.VerifyRequest;
+import com.dearlavion.authservice.access.AccessService;
 import com.dearlavion.authservice.auth.response.LoginResponse;
 import com.dearlavion.authservice.auth.response.LoginUserView;
 import com.dearlavion.authservice.auth.response.VerifyResult;
 import com.dearlavion.authservice.common.exception.BadRequestException;
 import com.dearlavion.authservice.common.exception.UnauthorizedException;
 import com.dearlavion.authservice.security.JwtTokenService;
+import com.dearlavion.authservice.superadmin.PermissionRole;
 import com.dearlavion.authservice.security.TokenClaims;
 import com.dearlavion.authservice.tenant.TenantService;
 import com.dearlavion.authservice.user.model.AuthType;
@@ -22,7 +24,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/auth")
@@ -36,6 +40,7 @@ public class AuthController {
     private final GoogleVerifierService googleVerifier;
     private final AuthMapper authMapper;
     private final TenantService tenants;
+    private final AccessService access;
 
     @Value("${app.google-enabled}")
     private boolean googleEnabled;
@@ -112,7 +117,7 @@ public class AuthController {
             @PathVariable String username
     ) {
         User user = userService.loadByUsernameOrThrow(customer, username);
-        return userService.toView(user);
+        return userService.toView(customer, user);
     }
 
     /** Self-service: update the CALLING user's own email. Unlike PATCH /auth/user/{username}
@@ -136,7 +141,7 @@ public class AuthController {
         }
         User updated = userService.updateUser(claims.customer(), claims.username(),
                 new UserVoRequest(null, null, null, body.email(), null, null, null, null, null));
-        return userService.toView(updated);
+        return userService.toView(claims.customer(), updated);
     }
 
     /** Public request for admin access to a project: created as a PENDING ADMIN that cannot sign in until a superadmin approves
@@ -216,8 +221,10 @@ public class AuthController {
         }
         // activeProfile (role) and customer (tenant) are additive — existing consumers ignore
         // them; store-engine uses the role for admin authz and the customer for tenant enforcement.
+        PermissionRole role = access.findRole(claims.customer(), user.getRoleId());
+        Set<String> permissions = access.permissionsOf(user, role);
         return new VerifyResult(true, claims.username(), user.getEmail(), user.getId(), user.getActiveProfile(), claims.customer(),
-                user.effectivePermission());
+                AccessService.legacyPermission(permissions), user.getRoleId(), role == null ? null : role.getName(), List.copyOf(permissions));
     }
 
     @PostMapping("/verify-google")

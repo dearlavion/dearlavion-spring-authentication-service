@@ -1,6 +1,7 @@
 package com.dearlavion.authservice.session;
 
 import com.dearlavion.authservice.auth.AuthService;
+import com.dearlavion.authservice.common.exception.ForbiddenException;
 import com.dearlavion.authservice.common.exception.UnauthorizedException;
 import com.dearlavion.authservice.session.SessionDtos.SessionResponse;
 import com.dearlavion.authservice.tenant.TenantService;
@@ -74,7 +75,13 @@ public class SessionController {
             @CookieValue(name = "${app.session-cookie-name}", required = false) String token
     ) {
         tenants.assertCustomer(customer);
-        if (token != null && !token.isBlank()) sessions.logout(token, customer);
+        if (token != null && !token.isBlank()) {
+            try {
+                sessions.logout(token, customer);
+            } catch (ForbiddenException e) {
+                // Project switched off: its tokens can't be touched, but the browser's cookie is still cleared below.
+            }
+        }
         return ResponseEntity.noContent().header(HttpHeaders.SET_COOKIE, cookie("", Duration.ZERO).toString()).build();
     }
 

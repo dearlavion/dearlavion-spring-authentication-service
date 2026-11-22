@@ -44,6 +44,9 @@ public class User {
      * document, so orders/payments/kits elsewhere that reference this user by id aren't orphaned. */
     private boolean active = true;
 
+    /** The role this user holds (a project role or a default one); null for accounts that predate roles, which keep their legacy access. */
+    private String roleId;
+
     /** Approval state of a privileged account; null (every document written before this existed) means APPROVED. */
     private ApprovalStatus status;
 

@@ -1,12 +1,13 @@
 package com.dearlavion.authservice.user;
 
+import com.dearlavion.authservice.access.AccessService;
 import com.dearlavion.authservice.common.exception.ConflictException;
 import com.dearlavion.authservice.common.exception.NotFoundException;
 import com.dearlavion.authservice.common.exception.UnauthorizedException;
+import com.dearlavion.authservice.superadmin.PermissionRole;
 import com.dearlavion.authservice.tenant.TenantService;
 import com.dearlavion.authservice.user.model.ApprovalStatus;
 import com.dearlavion.authservice.user.model.AuthType;
-import com.dearlavion.authservice.user.model.Permission;
 import com.dearlavion.authservice.user.model.Role;
 import com.dearlavion.authservice.user.model.User;
 import com.dearlavion.authservice.user.request.UserVoRequest;
@@ -17,12 +18,14 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /** Every lookup/write is scoped to a customer's own database, resolved via TenantService. */
@@ -33,6 +36,7 @@ public class UserService {
     private final TenantService tenants;
     private final UserMapper mapper;
     private final PasswordEncoder passwordEncoder;
+    private final AccessService access;
 
     public User findByUsername(String customer, String username) {
         MongoTemplate db = tenants.db(customer);
@@ -112,19 +116,16 @@ public class UserService {
     }
 
     /**
-     * An account created by a superadmin. An admin is approved on the spot with the chosen permission (there is nobody
-     * left to approve it); a plain user has neither status nor permission, like any registered user.
+     * An account created by a superadmin with a role. An admin-type role means approved on the spot (there is nobody left to
+     * approve it); a user-type role is a plain user, like any registered one.
      */
-    public User createAsSuperadmin(String customer, UserVoRequest vo, Role role, Permission permission) {
+    public User createAsSuperadmin(String customer, UserVoRequest vo, PermissionRole role) {
         MongoTemplate db = tenants.db(customer);
-        User user = mapper.toEntity(vo.withActiveProfile(role), AuthType.SIMPLE);
+        User user = mapper.toEntity(vo.withActiveProfile(role.getAccountType()), AuthType.SIMPLE);
         // POST /auth/register never stores names (see UserMapper.toEntity); here the superadmin typed them, so keep them.
         if (vo.firstname() != null && !vo.firstname().isBlank()) user.setFirstname(vo.firstname().trim());
         if (vo.lastname() != null && !vo.lastname().isBlank()) user.setLastname(vo.lastname().trim());
-        if (role == Role.ADMIN) {
-            user.setStatus(ApprovalStatus.APPROVED);
-            user.setPermission(permission);
-        }
+        applyRole(user, role);
         try {
             return db.insert(user);
         } catch (DuplicateKeyException e) {
@@ -132,12 +133,38 @@ public class UserService {
         }
     }
 
-    /** Superadmin decision on an ADMIN/STAFF account. Approving needs a permission; anything else clears it. */
-    public User decide(String customer, String username, ApprovalStatus status, Permission permission) {
+    /** Gives the user a role: it sets their access, and their legacy account type follows the role's. Assigning is also approving. */
+    public User assignRole(String customer, String username, PermissionRole role) {
+        User user = loadByUsernameOrThrow(customer, username);
+        applyRole(user, role);
+        return tenants.db(customer).save(user);
+    }
+
+    private static void applyRole(User user, PermissionRole role) {
+        user.setRoleId(role.getId());
+        user.setActiveProfile(role.getAccountType());
+        user.setPermission(null);
+        user.setStatus(role.getAccountType() == Role.ADMIN ? ApprovalStatus.APPROVED : null);
+    }
+
+    /** Rejecting or sending an admin request back to pending: the account keeps no role while it isn't approved. */
+    public User holdRequest(String customer, String username, ApprovalStatus status) {
         User user = loadByUsernameOrThrow(customer, username);
         user.setStatus(status);
-        user.setPermission(status == ApprovalStatus.APPROVED ? permission : null);
+        user.setRoleId(null);
+        user.setPermission(null);
         return tenants.db(customer).save(user);
+    }
+
+    public long countWithRole(String customer, String roleId) {
+        return tenants.db(customer).count(Query.query(Criteria.where("roleId").is(roleId)), User.class);
+    }
+
+    /** A role's account type changed: everyone holding it follows, so their legacy ADMIN/USER stays in step. */
+    public void syncAccountType(String customer, String roleId, Role type) {
+        tenants.db(customer).updateMulti(Query.query(Criteria.where("roleId").is(roleId)),
+                new Update().set("activeProfile", type)
+                        .set("status", type == Role.ADMIN ? ApprovalStatus.APPROVED : null), User.class);
     }
 
     private static Criteria matching(List<Role> roles, ApprovalStatus status, String q) {
@@ -179,7 +206,17 @@ public class UserService {
         return tenants.db(customer).count(Query.query(matching(roles, status, q)), User.class);
     }
 
-    public UserView toView(User user) {
-        return mapper.toView(user);
+    public UserView toView(String customer, User user) {
+        return toViews(customer, List.of(user)).get(0);
+    }
+
+    /** Views with each user's role name and permissions; the roles are read in one go, not per user. */
+    public List<UserView> toViews(String customer, List<User> users) {
+        List<String> roleIds = users.stream().map(User::getRoleId).filter(java.util.Objects::nonNull).distinct().toList();
+        Map<String, PermissionRole> roles = access.findRoles(customer, roleIds);
+        return users.stream().map(u -> {
+            PermissionRole role = u.getRoleId() == null ? null : roles.get(u.getRoleId());
+            return mapper.toView(u, role == null ? null : role.getName(), access.permissionsOf(u, role));
+        }).toList();
     }
 }

@@ -113,30 +113,50 @@ No token → 401; bad/expired token → 401; wrong role → 403.
 `PATCH /admin/users/{username}`, `PATCH /admin/users/{username}/active`,
 `PATCH /admin/users/{username}/password`.
 
-## Admin approval, permissions & superadmin (`/superadmin`)
+## Roles, permissions & superadmin (`/superadmin`)
 
 Powers `dearlavion-security-ui`. Superadmins live in a dedicated **security tenant** (`SECURITY_TENANT`, default
 `security`, which must also be in `CUSTOMERS`) and are the only accounts that can act across projects.
 
-- `POST /auth/admin-request` (`X-Customer`; `{username, email, password}`) creates an ADMIN with status `PENDING`. It can't
-  sign in (login, refresh, `/auth/verify`, `/admin/**` all refuse it) until a superadmin approves it.
-- Approval sets `status` (`PENDING|APPROVED|REJECTED`) and, when approving, `permission` (`READ|MODIFY|BOTH`, or `NONE` to keep the account but switch both off). `/admin/**`
-  enforces it: `READ` allows GET only, `MODIFY` writes only, `BOTH` everything. Accounts that predate this have no status or
-  permission and count as `APPROVED` / `BOTH`, so nothing existing is locked out.
-- `POST /auth/verify` now also returns `permission`; consuming backends should enforce it (it is the source of truth, the
-  JWT doesn't carry it, so a revoke takes effect on the next verify).
-- `/admin/users` no longer lets a project admin set roles: creating ignores the body's `activeProfile` (always `USER`) and
-  updating can't change it. Handing out ADMIN/STAFF is a superadmin decision. `SUPERADMIN` can only be created in the
-  security tenant (register with `X-Provision-Secret`).
-- `/superadmin/*` (Bearer token of a SUPERADMIN in the security tenant): `GET /projects`, `GET /projects/{customer}/users`
-  (`role=ADMIN|USER`, `status`, `q`, `page`, `size`), `PATCH /projects/{customer}/users/{username}/approval`
-  (`{status, permission}`), `POST /projects/{customer}/users` (`{username, email, password, role: ADMIN|USER, permission, firstname?, lastname?}`; an admin is
-  created already approved), `POST /projects/{customer}/roles` (`{name, description?, permission: READ|MODIFY|BOTH}`), `GET /roles` (`customer?`, `q`, `page`, `size`),
-  `DELETE /projects/{customer}/roles/{id}` (per-project permission presets; applying one copies its permission, there is no live link), `GET /users` (all projects, or one with `customer`; `role`, `q`, `page`, `size`), `PATCH .../active`, `GET /approvals`, `GET /audit`. Decisions are logged to `audit_log` in the
-  security tenant's database.
+**Model.** A *permission* is a named key (`orders.read`). A *role* ("Admin", "Simple User", "Guest"...) links permission keys and
+has an `accountType` that is **derived**, not set: a role linking any of `read`/`create`/`update`/`delete` is `ADMIN` (holders get the legacy `activeProfile` ADMIN and can reach a project's admin area), any other is `USER`. The built-in Admin and User roles keep theirs. A user holds a
+role by id and their access is the role's permissions, live: editing a role changes everyone who has it.
 
-First superadmin: add `security` to `CUSTOMERS`, then
-`POST /auth/register` with `X-Customer: security`, `X-Provision-Secret`, and `"activeProfile":"SUPERADMIN"`.
+- **Defaults vs project's own.** Permissions and roles created with no customer are **defaults** (stored in the security tenant's
+  database) and every project inherits them, so nothing is set up twice. A project can also define its own. A default role can
+  only link default permissions; names and keys can't clash between the defaults and a project.
+- **Built-in roles.** `Admin` (account type ADMIN, links `read`, `create`, `update`, `delete`) and `User` (account type USER, no permissions) are default
+  roles every project can assign. They can't be deleted, renamed or change account type, but what they grant and their description can
+  be edited.
+- **Built in.** `read`, `create`, `update` and `delete` are default permissions that gate `/admin/**` on this service by request
+  type (GET/HEAD read, POST create, PUT/PATCH update, DELETE delete) and can't be deleted or renamed. The older generic `modify` was
+  split into `create` + `update` + `delete`; roles that linked it are migrated at startup.
+- **No role = legacy.** Accounts that predate roles keep their old access: ADMIN/STAFF get `read` and/or `create` + `update` + `delete` from
+  their stored READ/MODIFY/BOTH/NONE (none stored = both), a plain USER gets nothing.
+- **Approval.** `POST /auth/admin-request` (`X-Customer`; `{username, email, password}`) creates an ADMIN with status `PENDING`; it
+  can't sign in (login, refresh, `/auth/verify`, `/admin/**`) until a superadmin approves it **by giving it a role**.
+- **`POST /auth/verify`** returns `permissions` (the keys to check), `roleId`/`roleName`, and `permission` (the older
+  READ/MODIFY/BOTH/NONE view: any of create/update/delete counts as modify). The JWT doesn't carry them, so a change applies on the next verify.
+- `/admin/users` doesn't let a project admin set roles (creating ignores the body's `activeProfile`, updating can't change it).
+  `SUPERADMIN` can only be created in the security tenant (register with `X-Provision-Secret`).
+
+**API** (Bearer token of a SUPERADMIN in the security tenant). Paths with `/defaults/...` are the defaults; with
+`/projects/{customer}/...` a project's own.
+
+| | |
+|---|---|
+| Projects | `GET /projects`, `PATCH /projects/{customer}/enabled` `{enabled}` |
+| Users | `GET /projects/{customer}/users` (`role=ADMIN\|USER`, `status`, `q`, `page`, `size`), `GET /users` (all projects, or `customer`), `POST /projects/{customer}/users` `{username, email, password, roleId, firstname?, lastname?}`, `PATCH .../users/{username}/role` `{roleId}`, `PATCH .../users/{username}/approval` `{status, roleId}`, `PATCH .../users/{username}/active` |
+| Permissions | `POST /defaults/permissions`, `POST /projects/{customer}/permissions` (`{key, description?}`: the key is the permission's name and unique identifier), `GET /permissions` (`customer`: omit = all, `*` = defaults only, a project = defaults + its own; `q`, `page`, `size`), `PATCH .../permissions/{id}` (`{key?, description?}`; renaming also renames it in every role that links it, and built-ins can't be renamed), `DELETE .../permissions/{id}` (refused while a role links it) |
+| Roles | `POST /defaults/roles`, `POST /projects/{customer}/roles` (`{name, description?, permissionKeys}`), `GET /roles` (same filters), `PATCH .../roles/{id}` (any field), `DELETE .../roles/{id}` (refused while users hold it) |
+| Other | `GET /approvals`, `GET /audit` |
+
+Switching a project off (`enabled: false`) makes its sign-in, sign-up, refresh, `/auth/verify`, `/auth/me`, service lookups and
+`/admin/**` answer 403 (an invalid-token 401 for verify); this API still works on it. Access tokens that a backend verifies locally
+keep working until they expire.
+
+First superadmin: add `security` to `CUSTOMERS`, then `POST /auth/register` with `X-Customer: security`, `X-Provision-Secret`, and
+`"activeProfile":"SUPERADMIN"`. Decisions are recorded in `audit_log` in the security tenant's database.
 
 ## Events (Kafka)
 

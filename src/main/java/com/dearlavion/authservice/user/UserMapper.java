@@ -8,6 +8,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import java.util.Collection;
+import java.util.List;
+
 @Component
 @RequiredArgsConstructor
 public class UserMapper {
@@ -35,11 +38,11 @@ public class UserMapper {
         if (u.image() != null) user.setImage(u.image());
     }
 
-    public UserView toView(User user) {
+    public UserView toView(User user, String roleName, Collection<String> permissions) {
         return new UserView(
                 user.getUsername(), user.getEmail(), user.getFirstname(), user.getLastname(),
                 user.getPhone(), user.getImage(), user.getActiveProfile(), user.isActive(),
-                user.effectiveStatus(), user.effectivePermission()
+                user.effectiveStatus(), user.getRoleId(), roleName, List.copyOf(permissions)
         );
     }
 }

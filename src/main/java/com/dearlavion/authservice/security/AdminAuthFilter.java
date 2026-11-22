@@ -1,7 +1,8 @@
 package com.dearlavion.authservice.security;
 
+import com.dearlavion.authservice.access.AccessService;
 import com.dearlavion.authservice.common.exception.ApiError;
-import com.dearlavion.authservice.user.model.Permission;
+import com.dearlavion.authservice.common.exception.ForbiddenException;
 import com.dearlavion.authservice.user.model.Role;
 import com.dearlavion.authservice.user.model.User;
 import com.dearlavion.authservice.user.UserService;
@@ -42,6 +43,7 @@ public class AdminAuthFilter extends OncePerRequestFilter {
 
     private final JwtTokenService jwtTokenService;
     private final UserService userService;
+    private final AccessService access;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -68,7 +70,14 @@ public class AdminAuthFilter extends OncePerRequestFilter {
             return;
         }
 
-        User user = userService.findByUsername(claims.customer(), claims.username());
+        User user;
+        try {
+            user = userService.findByUsername(claims.customer(), claims.username());
+        } catch (ForbiddenException e) {
+            // This filter runs outside the controller advice, so a project switched off has to be answered here.
+            writeError(response, HttpStatus.FORBIDDEN, e.getMessage());
+            return;
+        }
         if (user == null || !userService.canSignIn(user)) {
             writeError(response, HttpStatus.UNAUTHORIZED, "Invalid or expired token");
             return;
@@ -77,10 +86,10 @@ public class AdminAuthFilter extends OncePerRequestFilter {
             writeError(response, HttpStatus.FORBIDDEN, "Admin access required");
             return;
         }
-        boolean reads = HttpMethod.GET.matches(request.getMethod()) || HttpMethod.HEAD.matches(request.getMethod());
-        Permission permission = user.effectivePermission();
-        if (reads ? !permission.canRead() : !permission.canModify()) {
-            writeError(response, HttpStatus.FORBIDDEN, reads ? "Read permission required" : "Modify permission required");
+        // The built-in read/create/update/delete permissions, whether they come from the user's role or from their legacy access.
+        String required = AccessService.requiredFor(request.getMethod());
+        if (!access.permissionsOf(claims.customer(), user).contains(required)) {
+            writeError(response, HttpStatus.FORBIDDEN, "Permission required: " + required);
             return;
         }
 

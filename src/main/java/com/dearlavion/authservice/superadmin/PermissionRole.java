@@ -1,20 +1,25 @@
 package com.dearlavion.authservice.superadmin;
 
-import com.dearlavion.authservice.user.model.Permission;
+import com.dearlavion.authservice.user.model.Role;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * A named permission preset ("Content editor" = READ + MODIFY) a superadmin defines for one project. Kept in that project's
- * own database like its users. Applying a role copies its permission onto the admin; there is no live link, so editing or
- * deleting a role never changes anyone's access.
+ * A role ("Admin", "Simple User", "Guest") that links permissions by key. A <em>default</em> role lives in the security
+ * tenant's database and every project can assign it; a project can also define its own in its database. Users hold a role by
+ * id and their access follows it live: editing the role changes everyone who has it. {@code accountType} is what the legacy
+ * {@code activeProfile} (ADMIN or USER) of a holder is derived from, so consumers of /auth/verify keep working.
  */
 @Getter
+@Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Document(collection = "roles")
@@ -24,7 +29,10 @@ public class PermissionRole {
     private String id;
     private String name;
     private String description;
-    private Permission permission;
+    private Role accountType;
+    private List<String> permissionKeys = new ArrayList<>();
+    /** Admin and User ship with the service: they can't be deleted, renamed or change account type, but their permissions can be edited. */
+    private boolean builtIn;
     private String createdBy;
     private Instant createdAt;
 }

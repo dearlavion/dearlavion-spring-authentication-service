@@ -24,13 +24,13 @@ public class AdminUserController {
 
     @GetMapping
     public List<UserView> list(@RequestAttribute(AdminAuthFilter.ADMIN_USER_ATTRIBUTE) AdminRequestUser admin) {
-        return userService.listUsers(admin.customer()).stream().map(userService::toView).toList();
+        return userService.toViews(admin.customer(), userService.listUsers(admin.customer()));
     }
 
     @GetMapping("/{username}")
     public UserView get(@RequestAttribute(AdminAuthFilter.ADMIN_USER_ATTRIBUTE) AdminRequestUser admin,
                          @PathVariable String username) {
-        return userService.toView(userService.loadByUsernameOrThrow(admin.customer(), username));
+        return userService.toView(admin.customer(), userService.loadByUsernameOrThrow(admin.customer(), username));
     }
 
     /** Creates a regular user. The role in the body is ignored: handing out ADMIN/STAFF is a superadmin decision
@@ -38,19 +38,19 @@ public class AdminUserController {
     @PostMapping
     public UserView create(@RequestAttribute(AdminAuthFilter.ADMIN_USER_ATTRIBUTE) AdminRequestUser admin,
                             @RequestBody UserVoRequest body) {
-        return userService.toView(userService.registerUser(admin.customer(), body.withActiveProfile(Role.USER), AuthType.SIMPLE));
+        return userService.toView(admin.customer(), userService.registerUser(admin.customer(), body.withActiveProfile(Role.USER), AuthType.SIMPLE));
     }
 
     @PatchMapping("/{username}")
     public UserView update(@RequestAttribute(AdminAuthFilter.ADMIN_USER_ATTRIBUTE) AdminRequestUser admin,
                             @PathVariable String username, @RequestBody UserVoRequest body) {
-        return userService.toView(userService.updateUser(admin.customer(), username, body.withActiveProfile(null)));
+        return userService.toView(admin.customer(), userService.updateUser(admin.customer(), username, body.withActiveProfile(null)));
     }
 
     @PatchMapping("/{username}/active")
     public UserView setActive(@RequestAttribute(AdminAuthFilter.ADMIN_USER_ATTRIBUTE) AdminRequestUser admin,
                                @PathVariable String username, @RequestBody Map<String, Boolean> body) {
-        return userService.toView(userService.setActive(admin.customer(), username, Boolean.TRUE.equals(body.get("active"))));
+        return userService.toView(admin.customer(), userService.setActive(admin.customer(), username, Boolean.TRUE.equals(body.get("active"))));
     }
 
     @PatchMapping("/{username}/password")
