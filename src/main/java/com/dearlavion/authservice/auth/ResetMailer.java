@@ -52,6 +52,7 @@ public class ResetMailer {
         CompletableFuture.runAsync(() -> {
             try {
                 mail.send(message);
+                log.info("Password reset email accepted by the mail server");
             } catch (Exception e) {
                 log.error("Password reset email failed: {}", e.getClass().getSimpleName() + ": " + e.getMessage());
             }
