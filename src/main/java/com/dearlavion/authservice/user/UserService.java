@@ -4,6 +4,7 @@ import com.dearlavion.authservice.access.AccessService;
 import com.dearlavion.authservice.common.exception.ConflictException;
 import com.dearlavion.authservice.common.exception.NotFoundException;
 import com.dearlavion.authservice.common.exception.UnauthorizedException;
+import com.dearlavion.authservice.session.RefreshToken;
 import com.dearlavion.authservice.superadmin.PermissionRole;
 import com.dearlavion.authservice.tenant.TenantService;
 import com.dearlavion.authservice.user.model.ApprovalStatus;
@@ -22,6 +23,7 @@ import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -74,6 +76,21 @@ public class UserService {
         User user = loadByUsernameOrThrow(customer, username);
         user.setPassword(passwordEncoder.encode(newPassword));
         tenants.db(customer).save(user);
+    }
+
+    /**
+     * Sets a new password only if it hasn't changed since {@code user} was read (so a reset link can't be used twice), then
+     * ends the user's cookie sessions. Returns false if it had changed.
+     */
+    public boolean replacePassword(String customer, User user, String newPassword) {
+        MongoTemplate db = tenants.db(customer);
+        long changed = db.updateFirst(
+                Query.query(Criteria.where("id").is(user.getId()).and("password").is(user.getPassword())),
+                new Update().set("password", passwordEncoder.encode(newPassword)), User.class).getModifiedCount();
+        if (changed == 0) return false;
+        db.updateMulti(Query.query(Criteria.where("userId").is(user.getId()).and("revokedAt").is(null)),
+                new Update().set("revokedAt", Instant.now()), RefreshToken.class);
+        return true;
     }
 
     /** Every user for a tenant — admin's Users list fetches once and filters/paginates

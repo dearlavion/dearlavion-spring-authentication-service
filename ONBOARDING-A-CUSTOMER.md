@@ -6,7 +6,8 @@ so a token minted for one customer is **rejected** everywhere else.
 
 The customer is chosen **per request**:
 - **credential endpoints** (`register`, `login`, `forgot-password`, `GET/PATCH /auth/user/{username}`,
-  `PATCH /auth/me`, and everything under `/admin/users`) read it from the **`X-Customer` header**;
+  `PATCH /auth/me`, and everything under `/admin/users`) read it from the **`X-Customer` header**
+  (`/auth/user/{username}` also needs a credential, see the README);
 - **`verify`** and **`reset-password`** read it from the **token's `customer` claim** (no header).
 
 Adding a customer is **config, not a new deployment**: add the slug to the `CUSTOMERS` allowlist and

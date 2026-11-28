@@ -30,6 +30,7 @@ public class JwtTokenService {
     private static final String CLAIM_USER_ID = "uid";
     private static final String CLAIM_TYPE = "type";
     private static final String TYPE_PASSWORD_RESET = "PASSWORD_RESET";
+    private static final String CLAIM_PASSWORD_FINGERPRINT = "pwf";
 
     private final Key key;
     private final long expiresInSeconds;
@@ -73,6 +74,8 @@ public class JwtTokenService {
     public TokenClaims verifyToken(String token) {
         try {
             Claims claims = Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token).getBody();
+            // Reset tokens share the signing key, so they must be refused here or they would work as a login.
+            if (TYPE_PASSWORD_RESET.equals(claims.get(CLAIM_TYPE, String.class))) return null;
             String username = claims.getSubject() != null ? claims.getSubject() : claims.get(CLAIM_USERNAME, String.class);
             if (username == null) return null;
             return new TokenClaims(username, claims.get(CLAIM_CUSTOMER, String.class), claims.get(CLAIM_USER_ID, String.class));
@@ -82,8 +85,14 @@ public class JwtTokenService {
     }
 
     public String generatePasswordResetToken(String username, String customer) {
+        return generatePasswordResetToken(username, customer, null);
+    }
+
+    /** {@code fingerprint} identifies the password being replaced, so the token stops working once it has changed. */
+    public String generatePasswordResetToken(String username, String customer, String fingerprint) {
         Date now = new Date();
         return Jwts.builder()
+                .claim(CLAIM_PASSWORD_FINGERPRINT, fingerprint)
                 .setSubject(username)
                 .claim(CLAIM_TYPE, TYPE_PASSWORD_RESET)
                 .claim(CLAIM_CUSTOMER, customer)
@@ -93,8 +102,11 @@ public class JwtTokenService {
                 .compact();
     }
 
-    /** Validates a reset token and returns its username + customer, or throws 401. */
-    public TokenClaims validatePasswordResetToken(String token) {
+    /** A verified reset token. {@code fingerprint} is null on tokens issued before it existed (and by v1/v2). */
+    public record ResetClaims(String username, String customer, String fingerprint) {}
+
+    /** Validates a reset token and returns what it carries, or throws 401. */
+    public ResetClaims validatePasswordResetToken(String token) {
         Claims claims;
         try {
             claims = Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token).getBody();
@@ -104,6 +116,7 @@ public class JwtTokenService {
         if (!TYPE_PASSWORD_RESET.equals(claims.get(CLAIM_TYPE, String.class))) {
             throw new UnauthorizedException("Invalid token type");
         }
-        return new TokenClaims(claims.getSubject(), claims.get(CLAIM_CUSTOMER, String.class));
+        return new ResetClaims(claims.getSubject(), claims.get(CLAIM_CUSTOMER, String.class),
+                claims.get(CLAIM_PASSWORD_FINGERPRINT, String.class));
     }
 }

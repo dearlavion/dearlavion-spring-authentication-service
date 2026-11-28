@@ -5,6 +5,19 @@ spring:
     # local Mongo that no longer exists. Gitignored, so the credential never lands in the repo,
     # a shell history, or `ps` output. Matches store-engine-v2.
     import: optional:file:.env[.properties]
+  # SMTP for the superadmin password-reset email. Empty SMTP_HOST => no email is sent from this service.
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${SMTP_STARTTLS:true}
+      mail.smtp.starttls.required: ${SMTP_STARTTLS:true}
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
   data:
     mongodb:
       # No localhost fallback, deliberately: with one, a missing MONGODB_URI started the service
@@ -40,6 +53,10 @@ app:
   jwt-secret-base64: ${JWT_SECRET:5B6F7D3E2A9C4B8E0A1F6D9B3E7A2C9D4F8E5B6C3A7B1D6F4C9A3E8D2B5F7A1}
   jwt-expires-in-seconds: ${JWT_EXPIRES_IN_SECONDS:86400}
   jwt-reset-expires-in-seconds: ${JWT_RESET_EXPIRES_IN_SECONDS:900}
+  # The superadmin dashboard's reset page; the emailed link is this plus #token=... . Always taken from configuration,
+  # never from the request, so nobody can make the email point somewhere else.
+  security-reset-url: ${SECURITY_RESET_URL:http://localhost:5174/reset-password}
+  mail-from: ${MAIL_FROM:}
   # Shared secret other backends send (X-Service-Key) to look users up by id/username. Empty => disabled.
   service-key: ${SERVICE_KEY:}
   # Cookie-backed sessions (POST /auth/session/*): a short access token plus a rotating refresh token

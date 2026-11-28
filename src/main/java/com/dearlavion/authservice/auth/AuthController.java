@@ -1,5 +1,6 @@
 package com.dearlavion.authservice.auth;
 
+import com.dearlavion.authservice.auth.request.ForgotPasswordRequest;
 import com.dearlavion.authservice.auth.request.ResetPasswordRequest;
 import com.dearlavion.authservice.auth.request.UpdateEmailRequest;
 import com.dearlavion.authservice.auth.request.VerifyGoogleRequest;
@@ -9,6 +10,7 @@ import com.dearlavion.authservice.auth.response.LoginResponse;
 import com.dearlavion.authservice.auth.response.LoginUserView;
 import com.dearlavion.authservice.auth.response.VerifyResult;
 import com.dearlavion.authservice.common.exception.BadRequestException;
+import com.dearlavion.authservice.common.exception.ForbiddenException;
 import com.dearlavion.authservice.common.exception.UnauthorizedException;
 import com.dearlavion.authservice.security.JwtTokenService;
 import com.dearlavion.authservice.superadmin.PermissionRole;
@@ -41,6 +43,7 @@ public class AuthController {
     private final AuthMapper authMapper;
     private final TenantService tenants;
     private final AccessService access;
+    private final UserRouteGuard userRouteGuard;
 
     @Value("${app.google-enabled}")
     private boolean googleEnabled;
@@ -98,8 +101,16 @@ public class AuthController {
             @RequestHeader(value = "X-Customer", required = false) String customer,
             @PathVariable String username,
             @RequestBody UserVoRequest u,
-            @RequestHeader(value = "X-Provision-Secret", required = false) String provisionSecretHeader
+            @RequestHeader(value = "X-Provision-Secret", required = false) String provisionSecretHeader,
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader(value = "X-Service-Key", required = false) String serviceKeyHeader
     ) {
+        // Superadmin accounts are stricter: neither the service key nor their own token is enough to change one, so a
+        // leaked key or access token can't move a superadmin's email and then reset the password to another inbox.
+        if (tenants.isSecurityTenant(customer) && !canProvision(provisionSecretHeader)) {
+            throw new ForbiddenException("Not allowed for this tenant");
+        }
+        userRouteGuard.assertMayAccess(customer, username, authHeader, serviceKeyHeader, provisionSecretHeader);
         // Role changes are gated by the same secret; without it, ignore any activeProfile in the
         // body (other profile fields still update).
         if (u.activeProfile() != null) {
@@ -114,15 +125,18 @@ public class AuthController {
     @GetMapping("/user/{username}")
     public com.dearlavion.authservice.user.response.UserView getUser(
             @RequestHeader(value = "X-Customer", required = false) String customer,
-            @PathVariable String username
+            @PathVariable String username,
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestHeader(value = "X-Service-Key", required = false) String serviceKeyHeader,
+            @RequestHeader(value = "X-Provision-Secret", required = false) String provisionSecretHeader
     ) {
+        userRouteGuard.assertMayAccess(customer, username, authHeader, serviceKeyHeader, provisionSecretHeader);
         User user = userService.loadByUsernameOrThrow(customer, username);
         return userService.toView(customer, user);
     }
 
     /** Self-service: update the CALLING user's own email. Unlike PATCH /auth/user/{username}
-     * above (an internal, service-to-service endpoint — no bearer check, trusts the path
-     * username as-is), this resolves the target user from the caller's own verified JWT, never
+     * above (which also accepts backend secrets, see {@link UserRouteGuard}), this resolves the target user from the caller's own verified JWT, never
      * from client input, so an authenticated caller can only ever edit their own account. */
     @PatchMapping("/me")
     public com.dearlavion.authservice.user.response.UserView updateMe(
@@ -180,9 +194,12 @@ public class AuthController {
     @PostMapping("/forgot-password")
     public Map<String, String> forgotPassword(
             @RequestHeader(value = "X-Customer", required = false) String customer,
-            @RequestParam String email
+            @RequestParam(value = "email", required = false) String emailParam,
+            @RequestBody(required = false) ForgotPasswordRequest body
     ) {
-        passwordResetService.initiateReset(customer, email);
+        // A JSON body keeps the address out of access logs; the query parameter stays for existing clients.
+        tenants.assertCustomer(customer);
+        passwordResetService.initiateReset(customer, body != null && body.email() != null ? body.email() : emailParam);
         return Map.of("message", "If an account exists, a reset link was sent.");
     }
 
@@ -194,6 +211,8 @@ public class AuthController {
         }
         try {
             passwordResetService.resetPassword(body.token(), body.newPassword());
+        } catch (BadRequestException e) {
+            throw e;
         } catch (Exception e) {
             throw new BadRequestException("Invalid or expired token");
         }

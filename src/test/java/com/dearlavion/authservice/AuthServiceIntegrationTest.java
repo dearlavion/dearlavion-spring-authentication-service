@@ -131,14 +131,16 @@ class AuthServiceIntegrationTest {
         ResponseEntity<Map> withoutSecret = rest.exchange("/auth/register", HttpMethod.POST, new HttpEntity<>(body, headersNoSecret), Map.class);
         assertThat(withoutSecret.getStatusCode()).isEqualTo(HttpStatus.OK);
 
-        ResponseEntity<Map> got = rest.exchange("/auth/user/wannabe-admin", HttpMethod.GET, new HttpEntity<>(headersNoSecret), Map.class);
+        HttpHeaders operator = customerHeaders("acme");
+        operator.set("X-Provision-Secret", "test-provision-secret");
+        ResponseEntity<Map> got = rest.exchange("/auth/user/wannabe-admin", HttpMethod.GET, new HttpEntity<>(operator), Map.class);
         assertThat(got.getBody()).containsEntry("activeProfile", "USER"); // silently downgraded
 
         HttpHeaders headersWithSecret = customerHeaders("acme");
         headersWithSecret.set("X-Provision-Secret", "test-provision-secret");
         Map<String, Object> adminBody = Map.of("username", "real-admin", "email", "real-admin@acme.dev", "password", "pw", "activeProfile", "ADMIN");
         rest.exchange("/auth/register", HttpMethod.POST, new HttpEntity<>(adminBody, headersWithSecret), Map.class);
-        ResponseEntity<Map> gotAdmin = rest.exchange("/auth/user/real-admin", HttpMethod.GET, new HttpEntity<>(customerHeaders("acme")), Map.class);
+        ResponseEntity<Map> gotAdmin = rest.exchange("/auth/user/real-admin", HttpMethod.GET, new HttpEntity<>(headersWithSecret), Map.class);
         assertThat(gotAdmin.getBody()).containsEntry("activeProfile", "ADMIN");
     }
 

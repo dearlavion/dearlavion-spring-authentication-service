@@ -70,11 +70,23 @@ from the token instead. An unknown/missing customer on a header-scoped call → 
 | POST | `/register?type=SIMPLE&googleToken=` | required | 200 `{message, user}`; 409 if the user exists |
 | POST | `/login?type=SIMPLE` | required | 200 `{token, user}`; 401 on bad creds or deactivated account |
 | POST | `/verify` | — (from token) | `{token}` → `{valid, username, email, userId, activeProfile, customer}`; 401 `{valid:false}` on any failure |
-| GET | `/user/{username}` | required | public user view (no password) |
-| PATCH | `/user/{username}` | required | role change requires `X-Provision-Secret` |
+| GET | `/user/{username}` | required | user view (no password); needs a [credential](#who-may-call-authuserusername) |
+| PATCH | `/user/{username}` | required | needs a [credential](#who-may-call-authuserusername); role change also requires `X-Provision-Secret` |
 | POST | `/forgot-password?email=` | required | always 200; silent no-op if the email is unknown |
 | POST | `/reset-password` | — (from token) | `{token, newPassword}` → 200 |
 | POST | `/verify-google` | — | `{idToken}` → `{email}` |
+
+### Who may call `/auth/user/{username}`
+
+Both routes need one of these (a secret that is unset never matches):
+
+| Credential | |
+|---|---|
+| `X-Service-Key: <SERVICE_KEY>` | another backend. This key can **change** user profiles (including email), not only look people up |
+| `X-Provision-Secret: <PROVISION_SECRET>` | an operator |
+| `Authorization: Bearer <login token>` | the user themselves: same username and tenant, account still allowed to sign in |
+
+No valid credential → 401; another user's token → 403. On the security tenant, `PATCH` accepts only `X-Provision-Secret`.
 
 ## Cookie sessions, profile & lookup (for browser apps such as Dear Creative)
 
@@ -158,6 +170,23 @@ keep working until they expire.
 First superadmin: add `security` to `CUSTOMERS`, then `POST /auth/register` with `X-Customer: security`, `X-Provision-Secret`, and
 `"activeProfile":"SUPERADMIN"`. Decisions are recorded in `audit_log` in the security tenant's database.
 
+### Superadmin password reset by email
+
+`POST /auth/forgot-password` (`X-Customer: security`, `{"email"}`) emails a link to the dashboard's reset page, which calls
+`POST /auth/reset-password` `{token, newPassword}`. The link works once, expires after `JWT_RESET_EXPIRES_IN_SECONDS` (15 min),
+and a reset ends the account's cookie sessions (access tokens already issued last until they expire). The new password needs
+8+ characters, and at most one email per account per minute is sent (per instance). Other tenants still get the
+`RESET_PASSWORD` Kafka event. Reset tokens are refused as login tokens by this service, and `PATCH /auth/user/{username}`
+on the security tenant needs `X-Provision-Secret`.
+
+| env | |
+|---|---|
+| `SMTP_HOST`, `SMTP_PORT` | mail server (port default 587). No host = no email, with a warning in the log |
+| `SMTP_USERNAME`, `SMTP_PASSWORD` | mail login (an app password for Gmail) |
+| `SMTP_AUTH`, `SMTP_STARTTLS` | both default `true` |
+| `MAIL_FROM` | sender; defaults to `SMTP_USERNAME` |
+| `SECURITY_RESET_URL` | the dashboard's reset page, default `http://localhost:5174/reset-password`. Set it in every deployment |
+
 ## Events (Kafka)
 
 Topic `authentication-service-event`, `{ type, payload }` envelope — `NEW_USER` on register,
@@ -184,7 +213,7 @@ mvn spring-boot:run    # dev server on :9082
 | `JWT_EXPIRES_IN_SECONDS` / `JWT_RESET_EXPIRES_IN_SECONDS` | 86400 (24h) / 900 (15m) |
 | `KAFKA_ENABLED` / `KAFKA_BROKERS` / `KAFKA_CLIENT_ID` | true / `localhost:29092` / `dearlavion-spring-authentication-service-v3` |
 | `GOOGLE_ENABLED` / `GOOGLE_CLIENT_ID` | true / *(empty)* |
-| `SERVICE_KEY` | *(empty)* — shared secret for `/auth/internal/*`; generate with `openssl rand -hex 32` |
+| `SERVICE_KEY` | *(empty)* — shared secret for `/auth/internal/*` and `/auth/user/{username}`; generate with `openssl rand -hex 32` |
 | `SESSION_ACCESS_TTL_SECONDS` / `SESSION_REFRESH_TTL_DAYS` | 900 (15m) / 14 |
 | `SESSION_COOKIE_NAME` / `SESSION_COOKIE_PATH` / `SESSION_COOKIE_SECURE` | `dl_refresh` / `/auth` / `false`; the path must be the one the browser sees (e.g. `/api/v1/auth` behind a proxy), and `SESSION_COOKIE_SECURE=true` over https |
 | `SECURITY_TENANT` | `security` — tenant holding SUPERADMIN accounts; must also be listed in `CUSTOMERS` |
